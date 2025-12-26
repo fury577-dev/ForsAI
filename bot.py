@@ -20,7 +20,13 @@ if not ZUKI_API_KEY:
     raise RuntimeError("ZUKI_API_KEY not found. Check your .env file.")
 
 # =========================
-# MEMORY SETUP
+# SHORT-TERM CONVERSATION MEMORY
+# =========================
+MAX_CONTEXT_MESSAGES = 6  # 3 user + 3 assistant
+conversation_memory = {}
+
+# =========================
+# MEMORY SETUP (PERMANENT)
 # =========================
 MEMORY_FILE = "memory.json"
 
@@ -63,10 +69,29 @@ def load_persona():
         return f.read()
 
 # =========================
-# ZUKIJOURNEY API (FIXED)
+# ZUKIJOURNEY API (WITH CONTEXT)
 # =========================
-def zukijourney_chat(user_prompt):
+def zukijourney_chat(user_id, user_prompt):
     persona = load_persona()
+    user_id = str(user_id)
+
+    # Init memory for user
+    if user_id not in conversation_memory:
+        conversation_memory[user_id] = []
+
+    # Add user message
+    conversation_memory[user_id].append({
+        "role": "user",
+        "content": user_prompt
+    })
+
+    # Trim old context
+    conversation_memory[user_id] = conversation_memory[user_id][-MAX_CONTEXT_MESSAGES:]
+
+    messages = [
+        {"role": "system", "content": persona},
+        *conversation_memory[user_id]
+    ]
 
     headers = {
         "Authorization": f"Bearer {ZUKI_API_KEY}",
@@ -74,11 +99,8 @@ def zukijourney_chat(user_prompt):
     }
 
     payload = {
-        "model": "zukigm-1",  # ✅ VERIFIED FREE + ACTIVE
-        "messages": [
-            {"role": "system", "content": persona},
-            {"role": "user", "content": user_prompt}
-        ]
+        "model": "zukigm-1",
+        "messages": messages
     }
 
     response = requests.post(
@@ -88,17 +110,21 @@ def zukijourney_chat(user_prompt):
         timeout=30
     )
 
-    # Debug (keep for now)
-    print("=== ZUKI CHAT DEBUG ===")
-    print(response.status_code)
-    print(response.text)
-    print("=======================")
-
     response.raise_for_status()
     data = response.json()
 
-    return data["choices"][0]["message"]["content"]
+    reply = data["choices"][0]["message"]["content"]
 
+    # Store assistant reply
+    conversation_memory[user_id].append({
+        "role": "assistant",
+        "content": reply
+    })
+
+    # Trim again
+    conversation_memory[user_id] = conversation_memory[user_id][-MAX_CONTEXT_MESSAGES:]
+
+    return reply
 
 # =========================
 # DISCORD SETUP
@@ -174,7 +200,7 @@ async def ask(ctx, *, question: str):
     await ctx.send("Thinking…")
 
     try:
-        reply = zukijourney_chat(question)
+        reply = zukijourney_chat(ctx.author.id, question)
         await ctx.send(reply)
 
     except Exception as e:
@@ -186,3 +212,4 @@ async def ask(ctx, *, question: str):
 # =========================
 if __name__ == "__main__":
     bot.run(TOKEN)
+
