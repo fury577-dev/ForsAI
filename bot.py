@@ -75,17 +75,14 @@ def zukijourney_chat(user_id, user_prompt):
     persona = load_persona()
     user_id = str(user_id)
 
-    # Init memory for user
     if user_id not in conversation_memory:
         conversation_memory[user_id] = []
 
-    # Add user message
     conversation_memory[user_id].append({
         "role": "user",
         "content": user_prompt
     })
 
-    # Trim old context
     conversation_memory[user_id] = conversation_memory[user_id][-MAX_CONTEXT_MESSAGES:]
 
     messages = [
@@ -115,13 +112,11 @@ def zukijourney_chat(user_id, user_prompt):
 
     reply = data["choices"][0]["message"]["content"]
 
-    # Store assistant reply
     conversation_memory[user_id].append({
         "role": "assistant",
         "content": reply
     })
 
-    # Trim again
     conversation_memory[user_id] = conversation_memory[user_id][-MAX_CONTEXT_MESSAGES:]
 
     return reply
@@ -207,9 +202,18 @@ async def ask(ctx, *, question: str):
         await ctx.send("That was… troublesome. Try again later.")
         print("Zuki error:", e)
 
+@bot.command()
+async def clearcontext(ctx):
+    user_id = str(ctx.author.id)
+
+    if user_id in conversation_memory and conversation_memory[user_id]:
+        conversation_memory[user_id].clear()
+        await ctx.send("Context cleared. A clean slate.")
+    else:
+        await ctx.send("There was nothing to clear.")
+
 # =========================
 # RUN BOT
 # =========================
 if __name__ == "__main__":
     bot.run(TOKEN)
-
