@@ -1,6 +1,7 @@
 import json
 import os
 import discord
+import requests
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -10,8 +11,13 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOKEN = os.getenv("DISCORD_TOKEN")
+ZUKI_API_KEY = os.getenv("ZUKI_API_KEY")
+
 if not TOKEN:
     raise RuntimeError("DISCORD_TOKEN not found. Check your .env file.")
+
+if not ZUKI_API_KEY:
+    raise RuntimeError("ZUKI_API_KEY not found. Check your .env file.")
 
 # =========================
 # MEMORY SETUP
@@ -28,7 +34,6 @@ def load_memory():
     with open(MEMORY_FILE, "r") as f:
         data = json.load(f)
 
-    # Absolute safety net
     if "users" not in data or not isinstance(data["users"], dict):
         data = {"users": {}}
         save_memory(data)
@@ -49,6 +54,50 @@ def get_user_notes(data, user_id):
         data["users"][user_id] = {"notes": []}
 
     return data["users"][user_id]["notes"]
+
+# =========================
+# PERSONA SETUP
+# =========================
+def load_persona():
+    with open("personality/persona.txt", "r", encoding="utf-8") as f:
+        return f.read()
+
+# =========================
+# ZUKIJOURNEY API (FIXED)
+# =========================
+def zukijourney_chat(user_prompt):
+    persona = load_persona()
+
+    headers = {
+        "Authorization": f"Bearer {ZUKI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": "zukigm-1",  # ✅ VERIFIED FREE + ACTIVE
+        "messages": [
+            {"role": "system", "content": persona},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+
+    response = requests.post(
+        "https://api.zukijourney.com/v1/chat/completions",
+        headers=headers,
+        json=payload,
+        timeout=30
+    )
+
+    # Debug (keep for now)
+    print("=== ZUKI CHAT DEBUG ===")
+    print(response.status_code)
+    print(response.text)
+    print("=======================")
+
+    response.raise_for_status()
+    data = response.json()
+
+    return data["choices"][0]["message"]["content"]
 
 
 # =========================
@@ -120,9 +169,20 @@ async def delnote(ctx, index: int):
 
     await ctx.send(f"Removed note: *{removed}*")
 
+@bot.command()
+async def ask(ctx, *, question: str):
+    await ctx.send("Thinking…")
+
+    try:
+        reply = zukijourney_chat(question)
+        await ctx.send(reply)
+
+    except Exception as e:
+        await ctx.send("That was… troublesome. Try again later.")
+        print("Zuki error:", e)
+
 # =========================
 # RUN BOT
 # =========================
 if __name__ == "__main__":
     bot.run(TOKEN)
-
